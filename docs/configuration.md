@@ -16,6 +16,8 @@ ChatGPT sign-in is separate for Alice and Bob. A profile's credential is encrypt
 
 The model catalog comes from OpenAI using the profile's OAuth credential. The app does not assume that any named model is available to every account. If the selected model is absent, choose a model that the account supports.
 
+Each demo profile retains its original ChatGPT registration and account identity after disconnect. Reconnecting uses that same identity. Switching the connected ChatGPT account within a profile is outside this PoC.
+
 Disconnect clears the local connection and attempts remote revocation. Review the app's result rather than assuming a failed network request revoked access.
 
 The [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) govern model requests. This project sends streamed, stateless Responses requests with the full conversation history. It does not use server-side Responses conversation storage.

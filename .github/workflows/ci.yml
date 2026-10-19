@@ -32,10 +32,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e '.[test]'
+      - run: python -m playwright install --with-deps chromium
       - run: python -m compileall -q src tests
-      - run: python -m pytest -q --junitxml=artifacts/pytest.xml
+      - run: python -m pytest -q --junitxml=artifacts/pytest.xml --video=on --output=artifacts/browser
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: artifacts/pytest.xml
+          path: artifacts/
