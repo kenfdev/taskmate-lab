@@ -1,0 +1,68 @@
+name: verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: taskmate
+          POSTGRES_PASSWORD: taskmate
+          POSTGRES_DB: taskmate_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taskmate -d taskmate_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://taskmate:taskmate@127.0.0.1:5432/taskmate_test
+      LANGSMITH_TRACING: "false"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          version: "1.3.0"
+          node-version: "24.22.0"
+          run-install: false
+      - name: Install dependencies
+        run: vp install --no-frozen-lockfile
+      - name: Capture generated lockfile
+        run: |
+          echo TASKMATE_LOCK_START
+          cat pnpm-lock.yaml
+          echo TASKMATE_LOCK_END
+      - name: Normalize draft formatting
+        run: |
+          vp fmt
+          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import {readFileSync} from "node:fs"; const paths=execFileSync("git",["diff","--name-only","--diff-filter=M"],{encoding:"utf8"}).trim().split("\n").filter(Boolean); console.log("TASKMATE_FORMAT_START"); console.log(JSON.stringify(Object.fromEntries(paths.map(p=>[p,readFileSync(p,"utf8")])))); console.log("TASKMATE_FORMAT_END");'
+      - name: Static checks
+        run: vp check
+      - name: TypeScript checks
+        run: pnpm typecheck
+      - name: API and PostgreSQL tests
+        run: vp -C apps/api test run
+      - name: Build
+        run: vp run -r build
+      - name: Install browser
+        if: always()
+        run: pnpm --filter @taskmate/web exec playwright install --with-deps chromium
+      - name: Browser verification
+        if: always()
+        run: pnpm test:ui
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: taskmate-typescript-verification
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30

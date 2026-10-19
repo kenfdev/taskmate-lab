@@ -11,3 +11,6 @@ Read the current code and tests before changing behavior. Use the upstream pstac
 - Include a version update in the same PR as a functional change. Do not create a version-only PR.
 - Use .cursor/skills/verify-taskmate-lab/SKILL.md for verification. Record what actually ran and what remains unverified.
 - Keep CLAUDE.md limited to @AGENTS.md.
+
+- Use Vite+ for toolchain commands and keep its core alias/version aligned. Update the pnpm lockfile with dependency changes.
+- Keep scoped reads bound to the tab session, including across tabs. Never infer tenant identity from model arguments.

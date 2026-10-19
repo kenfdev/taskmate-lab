@@ -2,7 +2,7 @@
 
 ## Processes and state
 
-The browser loads a React build from Hono on the same loopback origin. Hono supplies a random HttpOnly session cookie and a CSRF token. Alice/Bob selection rotates the session; these profiles are demonstrations rather than authentication.
+The browser loads a React build from Hono on the same loopback origin. Hono supplies a random HttpOnly session cookie and a CSRF token. Alice/Bob selection rotates the session; these profiles are demonstrations rather than authentication. Scoped reads and writes require the current tab's CSRF token, preventing a stale tab from displaying another profile's data after the shared cookie changes.
 
 PostgreSQL holds domain tables, OAuth records, the LangGraph checkpointer, and the LangGraph store. The checkpointer preserves a conversation's graph state. The store holds user-scoped preferences across conversations. Tasks and notifications remain application data, not model memory.
 
