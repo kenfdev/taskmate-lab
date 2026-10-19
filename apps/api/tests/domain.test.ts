@@ -257,7 +257,8 @@ describe.skipIf(!databaseUrl)("PostgreSQL boundaries and durable agent effects",
       if (url.endsWith("/v1/models")) return Response.json({ models: [{ slug: "mock-task-model", visibility: "list" }] });
       if (!url.endsWith("/v1/responses")) throw new Error("Unexpected provider path");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer mock-access-token");
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (typeof init?.body !== "string") throw new Error("Expected a serialized JSON request body");
+      const body = JSON.parse(init.body) as Record<string, unknown>;
       requests.push(body);
       turns++;
       const output = turns === 1 ? [{

@@ -17,6 +17,7 @@ export interface AuthPort {
 }
 export const contextSchema = z.object({ userId: userIdSchema, threadId: uuidSchema }).strict();
 const stateSchema = z.object({ requestId: z.string().default("") });
+const snapshotSchema = z.object({ values: z.unknown(), next: z.array(z.string()) });
 export type UserContext = z.infer<typeof contextSchema>;
 type Runtime = ToolRuntime<unknown, typeof contextSchema>;
 
@@ -111,7 +112,9 @@ export function createGraph(
   });
   return {
     getState: async (options) => {
-      const state = await graph.getState(options);
+      // ReactAgent deliberately erases this forwarding method's return type to never.
+      // Recover unknown at this one boundary and validate the actual compiled-graph snapshot.
+      const state = snapshotSchema.parse(await Promise.resolve<unknown>(graph.getState(options)));
       return { values: state.values, next: state.next };
     },
     invoke: async (input, options) => graph.invoke(input, options),
