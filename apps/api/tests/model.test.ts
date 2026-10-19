@@ -296,7 +296,7 @@ describe("Responses wire contract", () => {
   });
 
   it.each([
-    { store: true }, { stream: false }, { previous_response_id: "resp_old" },
+    { store: true }, { store: false }, { store: "enabled" }, { stream: false }, { previous_response_id: "resp_old" },
     { temperature: 1 }, { max_output_tokens: 100 }, { stop: ["x"] },
     { background: true }, { additional_tools: [] }, { api_key: "test-only-key" },
     { outputVersion: "v1" }, { maxRetries: 2 },
@@ -306,6 +306,38 @@ describe("Responses wire contract", () => {
       .rejects.toBeInstanceOf(ResponsesError);
     expect(harness.fetch).not.toHaveBeenCalled();
     expect(harness.accessTokenGetter).not.toHaveBeenCalled();
+  });
+
+
+  it("accepts local LangGraph runtime options without leaking them into inference", async () => {
+    const harness = wireHarness();
+    const graphStore = { namespace: ["private-profile"], get: vi.fn(), put: vi.fn() };
+    const writer = vi.fn();
+    const interrupt = vi.fn();
+    await harness.model.invoke("Hi", {
+      context: { userId: "private-profile" },
+      control: { local: "control-marker" },
+      durability: "sync",
+      executionInfo: { local: "execution-marker" },
+      interrupt,
+      store: graphStore,
+      writer,
+    });
+    expect(harness.bodies()).toEqual([{
+      model: MODEL,
+      input: [{ role: "user", content: "Hi" }],
+      store: false,
+      stream: true,
+      include: ["reasoning.encrypted_content"],
+    }]);
+    const body = JSON.stringify(harness.bodies());
+    expect(body).not.toContain("private-profile");
+    expect(body).not.toContain("control-marker");
+    expect(body).not.toContain("execution-marker");
+    expect(graphStore.get).not.toHaveBeenCalled();
+    expect(graphStore.put).not.toHaveBeenCalled();
+    expect(writer).not.toHaveBeenCalled();
+    expect(interrupt).not.toHaveBeenCalled();
   });
 
   it("passes only supported inference settings", async () => {

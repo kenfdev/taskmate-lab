@@ -34,6 +34,8 @@ const WIRE_OPTIONS = new Set([
 ]);
 const LOCAL_OPTIONS = new Set([
   "signal", "outputVersion", "ls_structured_output_format", "maxRetries", "promptIndex",
+  // LangGraph runtime context is local configuration, never inference payload.
+  "context", "control", "durability", "executionInfo", "interrupt", "store", "writer",
 ]);
 
 export interface ResponsesCallOptions extends BaseChatModelCallOptions {
@@ -43,6 +45,14 @@ export interface ResponsesCallOptions extends BaseChatModelCallOptions {
   text?: JsonObject;
   parallel_tool_calls?: boolean;
   strict?: boolean;
+  // Forwarded by DeepAgents/LangGraph. These values are deliberately opaque and local.
+  context?: unknown;
+  control?: unknown;
+  durability?: unknown;
+  executionInfo?: unknown;
+  interrupt?: unknown;
+  store?: unknown;
+  writer?: unknown;
 }
 
 export interface ChatGPTResponsesModelOptions {
@@ -514,6 +524,14 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
     ).map(([key]) => key);
     if (unsupported.length) {
       throw new ResponsesError("Unsupported ChatGPT plan options: " + unsupported.sort().join(", "));
+    }
+    // A graph store object is unrelated to the Responses API store flag.
+    // Reject boolean API-style overrides rather than silently accepting them.
+    if (typeof options.store === "boolean") {
+      throw new ResponsesError("The Responses store option is fixed to false.");
+    }
+    if (options.store !== undefined && options.store !== null && !isObject(options.store)) {
+      throw new ResponsesError("The local graph store must be an object.");
     }
     if (options.outputVersion !== undefined && options.outputVersion !== "v0") {
       throw new ResponsesError("This adapter uses message output version v0.");
