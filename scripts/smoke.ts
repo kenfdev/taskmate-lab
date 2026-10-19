@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
+import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -94,6 +95,21 @@ async function request(
     redirect: "error",
   });
 }
+// Native fetch may normalize Host. Use the HTTP transport directly to test the
+// exact header that the production listener receives.
+async function wrongHostStatus(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(origin + "/api/session", {
+      headers: { host: "localhost:8765" },
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.once("error", reject);
+    req.setTimeout(5000, () => req.destroy(new Error("Wrong-Host probe timed out.")));
+    req.end();
+  });
+}
 async function object(response: Response): Promise<Record<string, unknown>> {
   const value: unknown = await response.json();
   assert.ok(value && typeof value === "object" && !Array.isArray(value), "Expected a JSON object.");
@@ -147,10 +163,7 @@ try {
   assert.equal(bundle.status, 200);
   assert.match(bundle.headers.get("content-type") ?? "", /javascript/);
   assert.equal((await request("/api/does-not-exist")).status, 404);
-  assert.equal(
-    (await request("/api/session", "GET", undefined, { host: "localhost:8765" })).status,
-    403,
-  );
+  assert.equal(await wrongHostStatus(), 403);
 
   const title = "Smoke task " + randomUUID();
   const createdResponse = await request("/api/tasks", "POST", { title });
