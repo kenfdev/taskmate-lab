@@ -13,6 +13,7 @@ import {
   type BaseMessage,
   type MessageContent,
   type ToolCall,
+  type AIMessageChunkFields,
 } from "@langchain/core/messages";
 import type { ChatResult } from "@langchain/core/outputs";
 import type { Runnable } from "@langchain/core/runnables";
@@ -383,22 +384,29 @@ function completedMessage(response: JsonObject, kinds: Map<string, ToolKind>): A
   const input = usage?.input_tokens;
   const outputCount = usage?.output_tokens;
   const total = usage?.total_tokens;
-  const usageMetadata = (
+  const usageMetadata: AIMessageChunkFields["usage_metadata"] = (
     typeof input === "number" && Number.isSafeInteger(input) && input >= 0 &&
     typeof outputCount === "number" && Number.isSafeInteger(outputCount) && outputCount >= 0 &&
     typeof total === "number" && Number.isSafeInteger(total) && total >= 0
   ) ? { input_tokens: input, output_tokens: outputCount, total_tokens: total } : undefined;
-  return new AIMessageChunk({
+  const modelName = response.model === undefined
+    ? undefined
+    : nonemptyString(response.model, "Invalid response model metadata.");
+  const responseId = response.id === undefined
+    ? undefined
+    : nonemptyString(response.id, "Invalid response ID metadata.");
+  const fields: AIMessageChunkFields = {
     content: text.join(""),
     tool_calls: calls,
     additional_kwargs: { [RESPONSES_OUTPUT_KEY]: structuredClone(output) },
     response_metadata: {
-      response_id: response.id,
-      model_name: response.model,
+      ...(responseId === undefined ? {} : { response_id: responseId }),
+      ...(modelName === undefined ? {} : { model_name: modelName }),
       finish_reason: calls.length ? "tool_calls" : "stop",
     },
     ...(usageMetadata ? { usage_metadata: usageMetadata } : {}),
-  });
+  };
+  return new AIMessageChunk(fields);
 }
 
 export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {

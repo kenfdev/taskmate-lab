@@ -64,7 +64,7 @@ function sse(events: JsonObject[] = [completed()]): Response {
 function wireHarness(responses: Response[] = [sse()], catalogFactory = () => catalog()) {
   const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-    const url = String(input);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     requests.push({ url, init });
     if (url === MODELS_URL) return catalogFactory();
     if (url !== RESPONSES_URL) throw new Error("Unexpected test URL");
@@ -77,9 +77,11 @@ function wireHarness(responses: Response[] = [sse()], catalogFactory = () => cat
   return {
     model, fetch, requests, accessTokenGetter,
     bodies(): JsonObject[] {
-      return requests.filter((request) => request.url === RESPONSES_URL).map((request) =>
-        JSON.parse(String(request.init?.body)) as JsonObject,
-      );
+      return requests.filter((request) => request.url === RESPONSES_URL).map((request) => {
+        const body = request.init?.body;
+        if (typeof body !== "string") throw new Error("Expected a JSON string request body");
+        return JSON.parse(body) as JsonObject;
+      });
     },
   };
 }
@@ -138,6 +140,7 @@ describe("Responses wire contract", () => {
       new HumanMessage("Hi"),
     ], { metadata: { tag: "local-only" }, tags: ["local"] });
     expect(output.content).toBe("Hello");
+    expect(output.response_metadata).toMatchObject({ response_id: "resp_1", model_name: MODEL });
     expect(output.usage_metadata).toEqual({ input_tokens: 8, output_tokens: 4, total_tokens: 12 });
     expect(harness.accessTokenGetter).toHaveBeenCalledTimes(1);
     expect(harness.requests.map((request) => request.url)).toEqual([MODELS_URL, RESPONSES_URL]);
@@ -387,6 +390,30 @@ describe("SSE parsing, failures, and cancellation", () => {
     const error = await rejection(harness.model.invoke("Hi"));
     expect(error).toBeInstanceOf(ResponsesError);
     expect(String(error)).not.toContain("private invalid JSON");
+  });
+
+
+  it.each([{ model: { private: TOKEN } }, { id: { private: TOKEN } }, { model: "" }])(
+    "rejects invalid optional response metadata: %j", async (metadata) => {
+      const event = {
+        type: "response.completed",
+        response: { status: "completed", output: [message()], ...metadata },
+      };
+      const harness = wireHarness([sse([event])]);
+      const error = await rejection(harness.model.invoke("Hi"));
+      expect(error).toBeInstanceOf(ResponsesError);
+      expect(String(error)).not.toContain(TOKEN);
+    },
+  );
+
+  it("allows omitted optional response metadata without inventing model identifiers", async () => {
+    const harness = wireHarness([sse([{
+      type: "response.completed", response: { status: "completed", output: [message()] },
+    }])]);
+    const result = await harness.model.invoke("Hi");
+    expect(result.content).toBe("Hello");
+    expect(result.response_metadata).not.toHaveProperty("model_name");
+    expect(result.response_metadata).not.toHaveProperty("response_id");
   });
 
   it("rejects JSON/nonstream responses", async () => {
