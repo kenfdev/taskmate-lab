@@ -47,6 +47,9 @@ jobs:
       - name: Build
         if: always()
         run: vp run -r build
+      - name: Built service smoke test
+        if: always()
+        run: node scripts/smoke.ts
       - name: Install browser
         if: always()
         run: pnpm --filter @taskmate/web exec playwright install --with-deps chromium
