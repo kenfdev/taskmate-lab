@@ -1,0 +1,9 @@
+node_modules/
+dist/
+artifacts/
+.env
+.env.*
+!.env.example
+.vite/
+.vite-task/
+.DS_Store
