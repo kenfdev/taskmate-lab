@@ -9,7 +9,7 @@ Use a disposable PostgreSQL database and synthetic Alice/Bob data. Do not collec
 
 1. Read AGENTS.md and the current API/UI contracts. Check that source, docs, and this skill agree.
 2. Install from the committed pnpm lockfile. Run pnpm exec vp check, pnpm typecheck, pnpm test, and pnpm build.
-3. Set TEST_DATABASE_URL for PostgreSQL integration. Verify ownership isolation, durable preferences, checkpoints, retries, and notification deduplication.
+3. After the build, run node scripts/smoke.ts with TEST_DATABASE_URL to verify the real localhost entrypoint, static assets, request guards, demo profiles, and worker persistence. Set TEST_DATABASE_URL for PostgreSQL integration. Verify ownership isolation, durable preferences, checkpoints, retries, and notification deduplication.
 4. Verify mocked OAuth PKCE/state/nonce, JWT issuer/audience/algorithm/nonce, scopes, encrypted records, refresh rotation, and disconnect behavior.
 5. Verify the Responses adapter against mocked SSE: full input, developer role, namespace tools, encrypted reasoning replay, malformed/truncated streams, and sanitized errors.
 6. Run pnpm test:ui after installing Playwright Chromium. Capture synthetic screenshots and videos in artifacts; include the artifact link in the PR.

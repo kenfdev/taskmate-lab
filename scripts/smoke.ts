@@ -99,12 +99,16 @@ async function request(
 // exact header that the production listener receives.
 async function wrongHostStatus(): Promise<number> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest(origin + "/api/session", {
-      headers: { host: "localhost:8765" },
-    }, (res) => {
-      res.resume();
-      resolve(res.statusCode ?? 0);
-    });
+    const req = httpRequest(
+      origin + "/api/session",
+      {
+        headers: { host: "localhost:8765" },
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
     req.once("error", reject);
     req.setTimeout(5000, () => req.destroy(new Error("Wrong-Host probe timed out.")));
     req.end();
@@ -207,7 +211,10 @@ try {
     403,
   );
   const bobTasks = await list(await request("/api/tasks"));
-  assert.equal(bobTasks.some((item) => item.id === id), false);
+  assert.equal(
+    bobTasks.some((item) => item.id === id),
+    false,
+  );
   assert.equal((await request("/api/tasks/" + id + "/complete", "POST", {})).status, 404);
   console.log("Built-service smoke passed.");
 } catch (error) {
