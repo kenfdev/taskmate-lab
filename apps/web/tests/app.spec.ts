@@ -39,6 +39,7 @@ class MockApi {
   calls: ApiCall[] = [];
   unhandled: string[] = [];
   csrfErrors: string[] = [];
+  expectedCsrfErrors: string[] = [];
   reply = "モック応答です。タスクをひとつずつ進めましょう。";
   failNextChat = false;
   remoteRevocationConfirmed = false;
@@ -51,17 +52,24 @@ class MockApi {
     return "synthetic-csrf-" + this.userId;
   }
 
-  session() {
+  session(userId: DemoUser = this.userId) {
     return {
-      user_id: this.userId,
-      csrf_token: this.csrf,
-      chatgpt_connected: this.connected[this.userId],
+      user_id: userId,
+      csrf_token: "synthetic-csrf-" + userId,
+      chatgpt_connected: this.connected[userId],
       model: this.model
     };
   }
 
-  async respond(route: Route, payload: unknown, status = 200): Promise<void> {
-    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
+  async respond(route: Route, payload: unknown, status = 200, userId?: DemoUser): Promise<void> {
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+      headers: userId ? {
+        "Set-Cookie": "taskmate_mock_profile=" + userId + "; Path=/; HttpOnly; SameSite=Lax"
+      } : undefined
+    });
   }
 
   async handle(route: Route): Promise<void> {
@@ -69,16 +77,20 @@ class MockApi {
     const path = new URL(request.url()).pathname;
     const method = request.method();
     const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null;
-    const user = this.userId;
-    const csrf = request.headers()["x-csrf-token"];
+    const headers = await request.allHeaders();
+    const profileCookie = headers.cookie?.split(";").map((part) => part.trim())
+      .find((part) => part.startsWith("taskmate_mock_profile="))?.split("=")[1];
+    const user: DemoUser = profileCookie === "alice" || profileCookie === "bob"
+      ? profileCookie : this.userId;
+    const csrf = headers["x-csrf-token"];
     this.calls.push({ method, path, userId: user, body: structuredClone(body), csrf });
-    if (method !== "GET" && method !== "HEAD" && csrf !== this.csrf) {
+    if (!(path === "/api/session" && method === "GET") && csrf !== "synthetic-csrf-" + user) {
       this.csrfErrors.push(method + " " + path);
       await this.respond(route, { detail: "Synthetic CSRF rejection" }, 403);
       return;
     }
     if (path === "/api/session" && method === "GET") {
-      await this.respond(route, this.session());
+      await this.respond(route, this.session(user), 200, user);
       return;
     }
     if (path === "/api/session" && method === "POST") {
@@ -88,7 +100,7 @@ class MockApi {
         return;
       }
       this.userId = nextUser;
-      await this.respond(route, this.session());
+      await this.respond(route, this.session(nextUser), 200, nextUser);
       return;
     }
     if (path === "/api/tasks" && method === "GET") {
@@ -216,12 +228,12 @@ class MockApi {
 }
 
 const test = base.extend<{ api: MockApi }>({
-  api: async ({ page }, use) => {
+  api: async ({ context }, use) => {
     const api = new MockApi();
-    await page.route("**/api/**", (route) => api.handle(route));
+    await context.route("**/api/**", (route) => api.handle(route));
     await use(api);
     expect(api.unhandled).toEqual([]);
-    expect(api.csrfErrors).toEqual([]);
+    expect(api.csrfErrors).toEqual(api.expectedCsrfErrors);
   }
 });
 
@@ -263,7 +275,7 @@ test("direct tasks and preferences work without OAuth or a model", async ({ page
   await expect(page.locator("#preference-status")).toHaveText("保存済み");
   expect(api.preferences.alice).toEqual({ tone: "friendly", notification_hour: 14, timezone: "Asia/Tokyo" });
   expect(api.model).toBeNull();
-  for (const call of api.calls.filter((item) => item.method !== "GET" && item.method !== "HEAD")) {
+  for (const call of api.calls.filter((item) => !(item.path === "/api/session" && item.method === "GET"))) {
     expect(call.csrf).toBe("synthetic-csrf-" + call.userId);
   }
 });
@@ -292,6 +304,60 @@ test("profile switches clear the previous tasks and chat", async ({ page, api })
   const calls = api.calls.filter((call) => call.path.endsWith("/chat"));
   expect(calls.map((call) => call.userId)).toEqual(["alice", "bob"]);
   expect(calls[0]!.path).not.toBe(calls[1]!.path);
+});
+
+test("a shared-cookie profile switch rejects stale reads in the other tab", async ({ page, context, api }) => {
+  api.connected = { alice: true, bob: true };
+  api.model = "mock-model-small";
+  api.notifications.alice = [{
+    id: "alice-notice", content: "Alice専用のお知らせ", created_at: "2026-10-19T00:00:00+00:00"
+  }];
+  api.notifications.bob = [{
+    id: "bob-notice", content: "Bob専用のお知らせ", created_at: "2026-10-19T00:00:00+00:00"
+  }];
+  await openApp(page);
+  await sendMessage(page, "Aliceのタブだけの会話");
+  await expect(page.locator("#runtime-status")).toHaveText("準備できました");
+  const otherTab = await context.newPage();
+  try {
+    await openApp(otherTab);
+    await expect(otherTab.locator("#demo-user")).toHaveValue("alice");
+    await otherTab.locator("#demo-user").selectOption("bob");
+    await expect(otherTab.locator("#runtime-status")).toHaveText("準備できました");
+    await expect(otherTab.locator("#task-list")).toContainText("Bobの買い物");
+    expect((await context.cookies()).find((cookie) => cookie.name === "taskmate_mock_profile")?.value).toBe("bob");
+
+    // The first tab still holds Alice's CSRF token, even though both tabs now
+    // share Bob's session cookie. The mocked server must reject, not return Bob.
+    await expect(page.locator("#demo-user")).toHaveValue("alice");
+    api.expectedCsrfErrors = ["GET /api/notifications"];
+    await page.locator("#refresh-notifications").click();
+    await expect(page.locator("#error-banner")).toContainText("別のタブでユーザーを切り替えた場合");
+    await expect(page.locator("#demo-user")).toHaveValue("alice");
+    await expect(page.locator("#demo-user")).toBeDisabled();
+    await expect(page.locator("#task-title")).toBeDisabled();
+    await expect(page.locator("#tone")).toBeDisabled();
+    await expect(page.locator("#chat-message")).toBeDisabled();
+    await expect(page.locator("#task-list")).not.toContainText("Aliceの見積もり");
+    await expect(page.locator("#task-list")).not.toContainText("Bobの買い物");
+    await expect(page.locator("#chat-log")).not.toContainText("Aliceのタブだけの会話");
+    await expect(page.locator("#notification-list")).not.toContainText("Alice専用のお知らせ");
+    await expect(page.locator("#notification-list")).not.toContainText("Bob専用のお知らせ");
+    const staleRead = api.calls.filter((call) => call.path === "/api/notifications").at(-1)!;
+    expect(staleRead.userId).toBe("bob");
+    expect(staleRead.csrf).toBe("synthetic-csrf-alice");
+
+    await page.getByRole("button", { name: "読み込み直す", exact: true }).click();
+    await expect(page.locator("#runtime-status")).toHaveText("準備できました");
+    await expect(page.locator("#demo-user")).toHaveValue("bob");
+    await expect(page.locator("#task-list")).toContainText("Bobの買い物");
+    await expect(page.locator("#notification-list")).toContainText("Bob専用のお知らせ");
+    await expect(page.locator("#task-list")).not.toContainText("Aliceの見積もり");
+    await expect(page.locator("#chat-log")).not.toContainText("Aliceのタブだけの会話");
+    await expect(page.locator("#error-banner")).toBeHidden();
+  } finally {
+    await otherTab.close();
+  }
 });
 
 test("a late Alice reply cannot appear after switching to Bob", async ({ page, api }) => {

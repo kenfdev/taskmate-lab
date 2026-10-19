@@ -194,9 +194,11 @@ async function api(
   assertActive(scope);
   const method = options.method ?? "GET";
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (method !== "GET") {
-    ensure(typeof scope.csrf === "string");
-    headers["X-CSRF-Token"] = scope.csrf;
+  // The cookie is shared across tabs; this token binds every scoped read or
+  // mutation to the profile captured by this tab. Only session bootstrap is exempt.
+  if (scope.csrf !== null) headers["X-CSRF-Token"] = scope.csrf;
+  if (path !== "/api/session" || method !== "GET") {
+    ensure(typeof scope.csrf === "string" && scope.csrf.length > 0);
   }
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(path, {
@@ -222,7 +224,7 @@ function isAbort(error: unknown): boolean {
 function errorText(error: unknown): string {
   if (error instanceof HttpError) {
     if (error.status === 401) return "接続を確認できませんでした。ChatGPTへのログイン状態を確認してください。";
-    if (error.status === 403) return "セッションを確認できませんでした。画面を読み込み直してください。";
+    if (error.status === 403) return "セッションを確認できませんでした。別のタブでユーザーを切り替えた場合は、画面を読み込み直してください。";
     if (error.status === 409) return "処理が進行中か、状態が変更されています。少し待ってからもう一度お試しください。";
     if (error.status === 429) return "リクエストが混み合っています。少し待ってからもう一度お試しください。";
     if (error.status === 400 || error.status === 422) return "入力内容を確認してください。保存できませんでした。";
@@ -299,7 +301,19 @@ export default function App() {
   }
 
   function reportError(scope: RequestScope, error: unknown): void {
-    if (!isAbort(error)) update(scope, (previous) => ({ ...previous, error: errorText(error) }));
+    if (!current(scope) || isAbort(error)) return;
+    if (error instanceof HttpError && error.status === 403) {
+      // Freeze this tab until an explicit session bootstrap. Aborting and clearing
+      // also prevents other outstanding requests from repopulating stale data.
+      scope.phase = "failed";
+      scope.active = false;
+      scope.controller.abort();
+      setState((previous) => scopeRef.current === scope ? {
+        ...initialState(), phase: "failed", session: previous.session, error: errorText(error)
+      } : previous);
+      return;
+    }
+    update(scope, (previous) => ({ ...previous, error: errorText(error) }));
   }
 
   async function loadTasks(scope: RequestScope): Promise<void> {
