@@ -75,6 +75,7 @@ class MockApi:
         self.reply = "モック応答です。タスクをひとつずつ進めましょう。"
         self.fail_next_chat = False
         self.remote_revocation_confirmed = False
+        self.preferences_after_chat = None
 
     @property
     def csrf(self):
@@ -214,6 +215,9 @@ class MockApi:
                         {"role": "assistant", "content": self.reply},
                     ])
                     thread["replies"][request_id] = self.reply
+                    if self.preferences_after_chat is not None:
+                        self.preferences[user].update(self.preferences_after_chat)
+                        self.preferences_after_chat = None
                 self.respond(route, {"reply": thread["replies"][request_id]})
                 return
 
@@ -434,6 +438,36 @@ def test_reload_restores_pending_request_without_duplicate_user_message(page, mo
     chat_calls = [call for call in api.calls if call["path"].endswith("/chat")]
     assert len(chat_calls) == 2
     assert chat_calls[1]["body"] == first_call["body"]
+
+
+def test_profile_timezone_can_load_utc_and_change_to_london_after_chat(page, mocked_app):
+    api, open_app = mocked_app
+    api.connected["alice"] = True
+    api.model = "mock-model-small"
+    api.preferences["alice"]["timezone"] = "UTC"
+    api.notifications["alice"] = [{
+        "id": "timezone-notification",
+        "content": "タイムゾーンを確認するためのモック通知です。",
+        "created_at": "2026-10-19T00:00:00+00:00",
+    }]
+    open_app()
+
+    expect(page.locator("#timezone")).to_have_value("UTC")
+    expect(page.locator("#timezone")).to_be_enabled()
+    expect(page.locator("#tone")).to_be_enabled()
+    expect(page.locator("#notification-list .notification-time")).to_contain_text("UTC")
+
+    api.preferences_after_chat = {"timezone": "Europe/London"}
+    page.get_by_label("メッセージ", exact=True).fill("通知のタイムゾーンをロンドンに変えて")
+    page.get_by_role("button", name="送信", exact=True).click()
+    expect(page.locator("#chat-log")).to_contain_text(api.reply)
+    expect(page.locator("#runtime-status")).to_have_text("準備できました")
+    expect(page.locator("#timezone")).to_have_value("Europe/London")
+    expect(page.locator("#timezone")).to_be_enabled()
+    expect(page.locator("#tone")).to_be_enabled()
+    expect(page.locator("#timezone option[value='Europe/London']")).to_have_text("Europe/London")
+    expect(page.locator("#notification-list .notification-time")).to_contain_text("Europe/London")
+    expect(page.locator("#error-banner")).to_be_hidden()
 
 
 def test_disconnect_warns_when_remote_revocation_is_unconfirmed(page, mocked_app):
