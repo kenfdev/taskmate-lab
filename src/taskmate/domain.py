@@ -45,7 +45,7 @@ class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tone: Literal["concise", "friendly"] = "concise"
     notification_hour: int = Field(default=9, ge=0, le=23, strict=True)
-    timezone: str = Field(default="UTC", min_length=1, max_length=100)
+    timezone: str = Field(default="Asia/Tokyo", min_length=1, max_length=100)
 
     @field_validator("timezone")
     @classmethod
@@ -332,7 +332,7 @@ class Repository:
         async with self.pool.connection() as conn:
             rows = await (
                 await conn.execute(
-                    """SELECT message, reply FROM tm_chat_requests
+                    """SELECT request_id, message, reply FROM tm_chat_requests
                        WHERE user_id = %s AND thread_id = %s ORDER BY sequence""",
                     (user_id, thread_id),
                 )

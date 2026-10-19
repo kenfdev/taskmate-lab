@@ -285,10 +285,11 @@ async def test_notifications_are_owner_scoped_and_daily_idempotent(repository):
     assert (await repository.notifications("alice"))[0]["content"] == (
         "A friendly nudge: Alice task."
     )
-    first = await preview(repository, "alice")
-    repeated = await preview(repository, "alice")
+    first = await preview(services, "alice")
+    repeated = await preview(services, "alice")
     assert first["id"] == repeated["id"]
     assert len(await repository.notifications("alice")) == 2
+    assert len(calls) == 3
 
 
 class ScriptedModel(BaseChatModel):

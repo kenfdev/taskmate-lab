@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -20,6 +21,13 @@ class FakeRepository:
         self.threads = {}
         self.transcripts = {}
         self.notices = {}
+
+    @asynccontextmanager
+    async def lock(self, key):
+        yield
+
+    async def notification(self, user_id, key):
+        return self.notices.get((user_id, key))
 
     async def new_session(self, user_id, previous_id=None):
         self.sessions = {
@@ -108,6 +116,9 @@ class FakeChat:
     def __init__(self, repo):
         self.repo = repo
         self.commands = {}
+
+    async def reminder(self, user_id, data):
+        return f"Personalized preview for {user_id}."
 
     async def available_models(self, user_id):
         return ["account-supported-model"]
@@ -272,6 +283,8 @@ async def test_api_validation_and_chat_request_replay(client):
     assert (await client.post(
         url, json={**payload, "message": "Changed"}, headers=headers
     )).status_code == 409
+    assert (await client.post("/api/notifications/preview", headers=headers)).status_code == 401
+    client.services.auth.connected["alice"] = True
     first = (await client.post("/api/notifications/preview", headers=headers)).json()
     second = (await client.post("/api/notifications/preview", headers=headers)).json()
     assert first["id"] == second["id"]
@@ -290,3 +303,12 @@ async def test_pending_command_can_be_restored_after_reload(client):
     }
     client.services.repo.transcripts[thread_id] = [pending]
     assert (await client.get(f"/api/threads/{thread_id}/messages")).json() == [pending]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["code=mock-code", "state=&code=mock-code"])
+async def test_oauth_callback_rejects_missing_state_before_auth(client, query):
+    await browser_session(client)
+    response = await client.get(f"/auth/callback?{query}")
+    assert response.status_code == 400
+    assert client.services.auth.callback is None

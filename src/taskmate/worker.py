@@ -41,11 +41,18 @@ def preview_text(data: dict) -> str:
     return f"{prefix}: {titles}{extra}."
 
 
-async def preview(repo, user_id: str) -> dict:
+async def preview(services, user_id: str) -> dict:
+    repo = services.repo
     prefs = await repo.preferences(user_id)
     data = reminder_data(prefs, await repo.tasks(user_id))
     digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-    return await repo.add_notification(user_id, f"preview:{digest}", "preview", preview_text(data))
+    key = f"preview:{digest}"
+    async with repo.lock(f"notification-preview:{user_id}"):
+        existing = await repo.notification(user_id, key)
+        if existing:
+            return existing
+        content = await services.chat.reminder(user_id, data)
+        return await repo.add_notification(user_id, key, "preview", content)
 
 
 async def deliver_due(services, now: datetime) -> int:
