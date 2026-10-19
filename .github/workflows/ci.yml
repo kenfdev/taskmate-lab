@@ -35,7 +35,7 @@ jobs:
           node-version: "24.22.0"
           run-install: false
       - name: Install dependencies
-        run: vp install --no-frozen-lockfile
+        run: vp install --frozen-lockfile
       - name: Capture generated lockfile
         run: |
           echo TASKMATE_LOCK_START
@@ -44,14 +44,17 @@ jobs:
       - name: Normalize draft formatting
         run: |
           vp fmt
-          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import {readFileSync} from "node:fs"; const paths=execFileSync("git",["diff","--name-only","--diff-filter=M"],{encoding:"utf8"}).trim().split("\n").filter(Boolean); console.log("TASKMATE_FORMAT_START"); console.log(JSON.stringify(Object.fromEntries(paths.map(p=>[p,readFileSync(p,"utf8")])))); console.log("TASKMATE_FORMAT_END");'
+          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import {readFileSync} from "node:fs"; const paths=execFileSync("git",["diff","--name-only","--diff-filter=M"],{encoding:"utf8"}).trim().split("\n").filter(Boolean); console.log("TASKMATE_FORMAT_START"); console.log(JSON.stringify(Object.fromEntries(paths.map(p=>[p,readFileSync(p).toString("base64")])))); console.log("TASKMATE_FORMAT_END");'
       - name: Static checks
         run: vp check
       - name: TypeScript checks
+        if: always()
         run: pnpm typecheck
       - name: API and PostgreSQL tests
+        if: always()
         run: vp -C apps/api test run
       - name: Build
+        if: always()
         run: vp run -r build
       - name: Install browser
         if: always()
