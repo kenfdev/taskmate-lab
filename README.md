@@ -1,68 +1,74 @@
-# taskmate-lab
+# Taskmate Lab
 
-A local learning app for a task assistant. ChatGPT sign-in supplies model access without an API key. DeepAgents connects the model to task operations. PostgreSQL keeps tasks, conversations, profile preferences, and in-app reminders across restarts.
+A local-first learning app for exploring a personalized task assistant with DeepAgents, durable PostgreSQL state, and Sign in with ChatGPT. Version 0.1.0.
 
-Alice and Bob are demo profiles. Anyone who can use this local app can switch profiles. Do not expose it to a network or treat the profile switch as authentication.
+## Stack
+
+- TypeScript throughout, Node.js 24
+- React browser UI, built with Vite+
+- Hono HTTP API, served on http://127.0.0.1:8765
+- DeepAgents / LangGraph JS with the official PostgreSQL checkpointer and store
+- PostgreSQL 17 for tasks, sessions, notifications, memory, and encrypted OAuth records
+- Vite+ for build, Vitest tests, formatting, linting, and type checks; Playwright for browser evidence
+
+Alice and Bob are local demo profiles. They are not authenticated SaaS accounts. Anyone with access to this local app can switch profiles. Do not expose it through a proxy, tunnel, or public interface.
 
 ## Start locally
 
-You need Python 3.12+, Docker with Compose, and a ChatGPT account eligible for the [Sign in with ChatGPT open-source preview](https://developers.openai.com/siwc/token-sharing-open-source). Preview availability and model access depend on the account.
-
-1. Clone this repository and enter its directory.
-2. Create a virtual environment and install the project.
-
-   ```sh
-   python3 -m venv .venv
-   source .venv/bin/activate
-   python -m pip install -e '.[test]'
-   ```
-
-3. Copy `.env.example` to `.env`.
-4. Generate an encryption key locally. Put the result in `TASKMATE_ENCRYPTION_KEY` in `.env`. Keep that file private.
-
-   ```sh
-   python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-   ```
-
-5. Start PostgreSQL and the application.
-
-   ```sh
-   docker compose up -d postgres
-   python -m taskmate
-   ```
-
-6. Open http://127.0.0.1:8765. Choose a demo profile, then select the ChatGPT sign-in button. Review and complete OpenAI's consent screen yourself.
-7. Use the model catalog button to read account-supported model IDs. Put one in `TASKMATE_MODEL` in `.env`, then restart the app.
-8. Add a task directly or ask the assistant to add one.
-
-Keep the encryption key across restarts. Losing it prevents the app from decrypting stored ChatGPT credentials. Back up the key separately from the database. Do not commit either.
-
-The callback URL is http://127.0.0.1:8765/auth/callback. Use that exact host and port. This app does not require a Codex process or an API key.
-
-## Try the learning scenarios
-
-- Add a task in Alice's profile. Ask the assistant to list or complete it.
-- Set Alice's response tone. Start another conversation and check that the tone remains.
-- Switch to Bob. Check that Alice's tasks and conversation are absent.
-- Preview an in-app reminder. No email or push message is sent.
-- Restart the app and check that tasks and preferences remain.
-
-To generate scheduled in-app reminders, run the worker in another terminal with the same environment:
+Install Node.js 24 and pnpm 12.14.0. Vite+ is a project dependency; a global installation is optional.
 
 ```sh
-source .venv/bin/activate
-set -a
-source .env
-set +a
-python -m taskmate.worker
+pnpm install
+cp .env.example .env
+docker compose up -d
 ```
 
-## Verify changes
+Generate your own encryption key locally and put the output in TASKMATE_ENCRYPTION_KEY in .env:
 
 ```sh
-python -m pytest -q
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Set `TEST_DATABASE_URL` to a disposable PostgreSQL database to include integration tests. Tests use mocked OAuth and model responses. They do not establish that a real ChatGPT account can complete consent or inference.
+Keep .env private and retain this key while using the same database. Never paste it into a chat or commit it.
 
-Follow the [verification skill](.cursor/skills/verify-taskmate-lab/SKILL.md) for browser checks and evidence. See [architecture](docs/architecture.md) for data ownership and [verification status](docs/verification-status.md) for checks that have actually run.
+```sh
+pnpm build
+pnpm start
+```
+
+Open http://127.0.0.1:8765, select a demo profile, and use “ChatGPTでログイン”. You complete consent directly with OpenAI. No API key is required.
+
+After connecting, load the available model catalog in the UI, copy an available model ID into TASKMATE_MODEL, then restart the API and worker. Chat and generated notification previews stay disabled until a model is configured. Direct task CRUD remains available.
+
+For scheduled in-app notifications, start another terminal:
+
+```sh
+pnpm worker
+```
+
+The worker checks once a minute. Notifications appear in this app; this PoC does not send email or push notifications.
+
+## Checks
+
+```sh
+pnpm exec vp check
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm --filter @taskmate/web exec playwright install chromium
+pnpm test:ui
+```
+
+Set TEST_DATABASE_URL to a disposable PostgreSQL database when running the API integration suite. Tests use mock OAuth and model responses; they do not sign in to OpenAI or spend model credits. See [verification instructions](.cursor/skills/verify-taskmate-lab/SKILL.md).
+
+Vite+ development UI is available with `pnpm --filter @taskmate/web dev`. It is for UI development and mocked browser tests. Use the built same-origin app on port 8765 for actual OAuth and API operations.
+
+## Boundaries
+
+The model can list/create/complete tasks and read/update preferences. It cannot execute a shell, make arbitrary HTTP requests, or run arbitrary SQL. User and thread identity are supplied by the server, not model arguments.
+
+ChatGPT login is OpenAI's official [token-sharing preview](https://developers.openai.com/siwc/token-sharing-open-source). Availability depends on the account and current preview eligibility. This localhost OSS app does not establish eligibility for a hosted paid SaaS. Real OAuth and real inference remain a manual local verification step.
+
+- [Configuration](docs/configuration.md)
+- [Architecture and security boundaries](docs/architecture.md)
+- [Verification status](docs/verification-status.md)

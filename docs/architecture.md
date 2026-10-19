@@ -1,37 +1,27 @@
 # Architecture
 
-The app is a local experiment in building a service around an agent. Its modules have separate responsibilities.
+## Processes and state
 
-- FastAPI serves the browser and validates the selected demo profile, session cookie, CSRF token, and resource ownership.
-- The task database is the source of truth for task state.
-- DeepAgents decides when to call the allowed task and preference tools.
-- The ChatGPT model adapter converts LangChain messages and tool calls to the official Responses wire format.
-- The OAuth service manages browser-bound authorization attempts, token validation, encryption, refresh, and disconnect.
-- PostgreSQL checkpoints persist a conversation's agent state. PostgreSQL Store persists profile preferences across conversations.
-- A separate worker decides when a daily in-app reminder is due. The model writes the reminder text.
+The browser loads a React build from Hono on the same loopback origin. Hono supplies a random HttpOnly session cookie and a CSRF token. Alice/Bob selection rotates the session; these profiles are demonstrations rather than authentication.
 
-## Profile and conversation ownership
+PostgreSQL holds domain tables, OAuth records, the LangGraph checkpointer, and the LangGraph store. The checkpointer preserves a conversation's graph state. The store holds user-scoped preferences across conversations. Tasks and notifications remain application data, not model memory.
 
-The server supplies the profile ID to tools. A model argument cannot choose another profile. Every task and conversation lookup includes its owner. Conversation identifiers are not credentials.
+The notification worker is a separate entrypoint in the same API package. It shares the application services and database; it is not an autonomous scheduler inside DeepAgents.
 
-Alice and Bob demonstrate data scoping, not account security. The profile selector can impersonate either demo profile by design. A hosted service needs real user authentication and authorization before this app can be reused.
+## Trusted context
 
-A conversation checkpoint and a profile preference serve different purposes. Checkpoints resume one conversation. Preferences apply to multiple conversations for the same profile. Neither replaces the task database.
+The server resolves a profile from the session, checks ownership of each task/thread, and supplies userId/threadId as trusted graph context. Models cannot choose another profile by adding tool arguments. Tool effects use a request/tool ledger to avoid duplicate creates on retries. A pending turn is resumable with its original request ID.
 
-## Retries and concurrent requests
+DeepAgents uses the official JS PostgreSQL checkpointer/store. Only explicit task/preference tools are exposed. Filesystem and other general-purpose agent capabilities must not become a route around these domain boundaries.
 
-Chat commands carry a request ID. Database coordination prevents concurrent turns from changing the same conversation and preserves the identity of a retried command. Task tool effects also have an idempotency key.
+## ChatGPT connection
 
-OAuth refresh holds a PostgreSQL session advisory lock. This prevents two app processes from rotating the same refresh token concurrently. Pending sign-in state is consumed before the token exchange.
+The app uses official OAuth authorization-code + PKCE with one-use state/nonce, fixed issuer endpoints, validated ID tokens, granted-scope checks, and profile-specific token storage. Refresh is coordinated with a database lock. There is no API-key fallback and no Codex process.
 
-A unique daily notification key prevents the worker from delivering the same daily reminder twice. This is an in-app database record, not an email or mobile notification.
+A custom LangChain chat model translates messages and tools into the official Responses token-sharing contract: streaming requests, store:false, full conversation input, developer instructions, namespaced tools, and encrypted reasoning replay. The adapter preserves response items through checkpoint serialization and rejects unsupported shapes/options. Incomplete streams cannot become successful responses.
 
 ## Local security boundary
 
-The application binds to 127.0.0.1:8765. It rejects unexpected hosts and cross-origin mutation requests. OAuth callback handling validates one-use state, PKCE, nonce, and the ID token before saving credentials.
+Host/origin checks, CSRF, loopback binding, restricted tool lists, ownership checks, encrypted credentials, and sanitized provider errors reduce accidental exposure. They do not turn a demo profile switcher into SaaS authentication. Any process or person already controlling the user's computer remains inside the trust boundary.
 
-Tokens stay encrypted in PostgreSQL and never enter browser storage. Do not enable request-body logging or record OAuth screens and network payloads during verification.
-
-DeepAgents receives no local shell backend, arbitrary HTTP tool, or SQL tool. Its virtual file operations do not grant host filesystem access.
-
-The [Sign in with ChatGPT open-source preview](https://developers.openai.com/siwc/token-sharing-open-source) is the access contract for this local app. Hosting a paid service requires a separate eligibility review. Do not assume local preview access authorizes a public SaaS deployment.
+Future multi-instance deployment needs real authentication, server-controlled identity mapping, shared storage, request idempotency, coordinated scheduling, and product eligibility review. Persistent conversation state alone is not tenant isolation.
