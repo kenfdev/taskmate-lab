@@ -30,12 +30,27 @@ const NAMESPACE = "taskmate";
 const MAX_EVENT_CHARS = 16 * 1024 * 1024;
 const OUTPUT_TYPES = new Set(["message", "reasoning", "function_call", "custom_tool_call"]);
 const WIRE_OPTIONS = new Set([
-  "instructions", "reasoning", "text", "parallel_tool_calls", "tool_choice", "tools",
+  "instructions",
+  "reasoning",
+  "text",
+  "parallel_tool_calls",
+  "tool_choice",
+  "tools",
 ]);
 const LOCAL_OPTIONS = new Set([
-  "signal", "outputVersion", "ls_structured_output_format", "maxRetries", "promptIndex",
+  "signal",
+  "outputVersion",
+  "ls_structured_output_format",
+  "maxRetries",
+  "promptIndex",
   // LangGraph runtime context is local configuration, never inference payload.
-  "context", "control", "durability", "executionInfo", "interrupt", "store", "writer",
+  "context",
+  "control",
+  "durability",
+  "executionInfo",
+  "interrupt",
+  "store",
+  "writer",
 ]);
 
 export interface ResponsesCallOptions extends BaseChatModelCallOptions {
@@ -63,7 +78,10 @@ export interface ChatGPTResponsesModelOptions {
 }
 
 export class ResponsesError extends Error {
-  constructor(message: string, readonly statusCode?: number) {
+  constructor(
+    message: string,
+    readonly statusCode?: number,
+  ) {
     super(message);
     this.name = "ResponsesError";
   }
@@ -133,15 +151,18 @@ function checkStatus(response: Response): void {
 function textContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) throw new ResponsesError("This PoC accepts text content only.");
-  return content.map((block: unknown) => {
-    if (typeof block === "string") return block;
-    if (
-      isObject(block) &&
-      ["text", "input_text", "output_text"].includes(String(block.type)) &&
-      typeof block.text === "string"
-    ) return block.text;
-    throw new ResponsesError("This PoC accepts text content only.");
-  }).join("");
+  return content
+    .map((block: unknown) => {
+      if (typeof block === "string") return block;
+      if (
+        isObject(block) &&
+        ["text", "input_text", "output_text"].includes(String(block.type)) &&
+        typeof block.text === "string"
+      )
+        return block.text;
+      throw new ResponsesError("This PoC accepts text content only.");
+    })
+    .join("");
 }
 
 function toolSpecs(tools: BindToolsInput[], strict?: boolean): ToolSpec[] {
@@ -169,10 +190,12 @@ function toolSpecs(tools: BindToolsInput[], strict?: boolean): ToolSpec[] {
       spec.description = definition.description;
     }
     if (kind === "function") {
-      spec.parameters = structuredClone(object(
-        definition.parameters ?? { type: "object", properties: {} },
-        "Function parameters must be a JSON schema object.",
-      ));
+      spec.parameters = structuredClone(
+        object(
+          definition.parameters ?? { type: "object", properties: {} },
+          "Function parameters must be a JSON schema object.",
+        ),
+      );
       const strictValue = strict ?? definition.strict;
       if (strictValue !== undefined) {
         if (typeof strictValue !== "boolean") {
@@ -286,7 +309,10 @@ function history(messages: BaseMessage[]): JsonObject[] {
     let role: string;
     if (message.type === "system") role = "developer";
     else if (message.type === "human") role = "user";
-    else if (ChatMessage.isInstance(message) && ["system", "developer", "user"].includes(message.role)) {
+    else if (
+      ChatMessage.isInstance(message) &&
+      ["system", "developer", "user"].includes(message.role)
+    ) {
       role = message.role === "system" ? "developer" : message.role;
     } else {
       throw new ResponsesError("Unsupported message role.");
@@ -303,7 +329,9 @@ async function* events(response: Response, signal: AbortSignal): AsyncGenerator<
   let buffer = "";
   let data: string[] = [];
   let size = 0;
-  const onAbort = () => { void reader.cancel().catch(() => undefined); };
+  const onAbort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
   signal.addEventListener("abort", onAbort, { once: true });
   try {
     while (true) {
@@ -360,10 +388,12 @@ function completedMessage(response: JsonObject, kinds: Map<string, ToolKind>): A
       throw new ResponsesError("The response contains an unsupported output item.");
     }
     if (item.type === "message") {
-      if (!Array.isArray(item.content)) throw new ResponsesError("Invalid response message content.");
+      if (!Array.isArray(item.content))
+        throw new ResponsesError("Invalid response message content.");
       for (const raw of item.content) {
         const block = object(raw, "Invalid response message content.");
-        const field = block.type === "output_text" ? "text" : block.type === "refusal" ? "refusal" : undefined;
+        const field =
+          block.type === "output_text" ? "text" : block.type === "refusal" ? "refusal" : undefined;
         const value = field ? block[field] : undefined;
         if (typeof value !== "string") {
           throw new ResponsesError("Unsupported response message content.");
@@ -394,17 +424,26 @@ function completedMessage(response: JsonObject, kinds: Map<string, ToolKind>): A
   const input = usage?.input_tokens;
   const outputCount = usage?.output_tokens;
   const total = usage?.total_tokens;
-  const usageMetadata: AIMessageChunkFields["usage_metadata"] = (
-    typeof input === "number" && Number.isSafeInteger(input) && input >= 0 &&
-    typeof outputCount === "number" && Number.isSafeInteger(outputCount) && outputCount >= 0 &&
-    typeof total === "number" && Number.isSafeInteger(total) && total >= 0
-  ) ? { input_tokens: input, output_tokens: outputCount, total_tokens: total } : undefined;
-  const modelName = response.model === undefined
-    ? undefined
-    : nonemptyString(response.model, "Invalid response model metadata.");
-  const responseId = response.id === undefined
-    ? undefined
-    : nonemptyString(response.id, "Invalid response ID metadata.");
+  const usageMetadata: AIMessageChunkFields["usage_metadata"] =
+    typeof input === "number" &&
+    Number.isSafeInteger(input) &&
+    input >= 0 &&
+    typeof outputCount === "number" &&
+    Number.isSafeInteger(outputCount) &&
+    outputCount >= 0 &&
+    typeof total === "number" &&
+    Number.isSafeInteger(total) &&
+    total >= 0
+      ? { input_tokens: input, output_tokens: outputCount, total_tokens: total }
+      : undefined;
+  const modelName =
+    response.model === undefined
+      ? undefined
+      : nonemptyString(response.model, "Invalid response model metadata.");
+  const responseId =
+    response.id === undefined
+      ? undefined
+      : nonemptyString(response.id, "Invalid response ID metadata.");
   const fields: AIMessageChunkFields = {
     content: text.join(""),
     tool_calls: calls,
@@ -432,7 +471,11 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
     this.#accessTokenGetter = options.accessTokenGetter;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#timeoutMs = options.timeoutMs ?? 180_000;
-    if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1 || this.#timeoutMs > 2_147_483_647) {
+    if (
+      !Number.isSafeInteger(this.#timeoutMs) ||
+      this.#timeoutMs < 1 ||
+      this.#timeoutMs > 2_147_483_647
+    ) {
       throw new ResponsesError("timeoutMs must be a positive integer within the timer limit.");
     }
   }
@@ -473,15 +516,22 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
   }
 
   async #catalog(token: string, signal: AbortSignal): Promise<string[]> {
-    const response = await waitFor(this.#fetch(MODELS_URL, {
-      headers: { Authorization: "Bearer " + token },
-      redirect: "error",
+    const response = await waitFor(
+      this.#fetch(MODELS_URL, {
+        headers: { Authorization: "Bearer " + token },
+        redirect: "error",
+        signal,
+      }),
       signal,
-    }), signal);
+    );
     try {
       checkStatus(response);
-      const payload = object(await waitFor(response.json() as Promise<unknown>, signal), "Invalid model catalog.");
-      if (!Array.isArray(payload.models)) throw new ResponsesError("The model catalog has no models array.");
+      const payload = object(
+        await waitFor(response.json() as Promise<unknown>, signal),
+        "Invalid model catalog.",
+      );
+      if (!Array.isArray(payload.models))
+        throw new ResponsesError("The model catalog has no models array.");
       const models: string[] = [];
       for (const raw of payload.models) {
         const entry = object(raw, "The model catalog contains an invalid entry.");
@@ -519,11 +569,15 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
     options: this["ParsedCallOptions"],
     runManager?: CallbackManagerForLLMRun,
   ): Promise<ChatResult> {
-    const unsupported = Object.entries(options).filter(([key, value]) =>
-      value !== undefined && !WIRE_OPTIONS.has(key) && !LOCAL_OPTIONS.has(key),
-    ).map(([key]) => key);
+    const unsupported = Object.entries(options)
+      .filter(
+        ([key, value]) => value !== undefined && !WIRE_OPTIONS.has(key) && !LOCAL_OPTIONS.has(key),
+      )
+      .map(([key]) => key);
     if (unsupported.length) {
-      throw new ResponsesError("Unsupported ChatGPT plan options: " + unsupported.sort().join(", "));
+      throw new ResponsesError(
+        "Unsupported ChatGPT plan options: " + unsupported.sort().join(", "),
+      );
     }
     // A graph store object is unrelated to the Responses API store flag.
     // Reject boolean API-style overrides rather than silently accepting them.
@@ -539,7 +593,8 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
     if (options.maxRetries !== undefined && options.maxRetries !== 0) {
       throw new ResponsesError("Automatic inference retries are disabled.");
     }
-    if (!this.model) throw new ResponsesError("Select a model from availableModels() before inference.");
+    if (!this.model)
+      throw new ResponsesError("Select a model from availableModels() before inference.");
     const specs = toolSpecs(options.tools ?? []);
     const kinds = new Map<string, ToolKind>(specs.map((spec) => [spec.name, spec.type]));
     const body: JsonObject = {
@@ -563,12 +618,14 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
       body.tool_choice = choice;
     }
     if (specs.length) {
-      body.tools = [{
-        type: "namespace",
-        name: NAMESPACE,
-        description: "Tools executed by the local Taskmate agent.",
-        tools: specs,
-      }];
+      body.tools = [
+        {
+          type: "namespace",
+          name: NAMESPACE,
+          description: "Tools executed by the local Taskmate agent.",
+          tools: specs,
+        },
+      ];
     }
     const timeout = AbortSignal.timeout(this.#timeoutMs);
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
@@ -577,19 +634,24 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
       checkAbort(signal);
       const token = await this.#token(signal);
       if (!(await this.#catalog(token, signal)).includes(this.model)) {
-        throw new ResponsesError("The selected model is not in this ChatGPT account's visible catalog.");
+        throw new ResponsesError(
+          "The selected model is not in this ChatGPT account's visible catalog.",
+        );
       }
-      response = await waitFor(this.#fetch(RESPONSES_URL, {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + token,
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-        },
-        body: JSON.stringify(body),
-        redirect: "error",
+      response = await waitFor(
+        this.#fetch(RESPONSES_URL, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify(body),
+          redirect: "error",
+          signal,
+        }),
         signal,
-      }), signal);
+      );
       checkStatus(response);
       const contentType = response.headers.get("content-type")?.split(";")[0]?.trim();
       if (contentType !== "text/event-stream") {
@@ -597,7 +659,11 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
       }
       const completedItems = new Map<number, JsonObject>();
       for await (const event of events(response, signal)) {
-        if (["error", "response.failed", "response.incomplete", "response.cancelled"].includes(String(event.type))) {
+        if (
+          ["error", "response.failed", "response.incomplete", "response.cancelled"].includes(
+            String(event.type),
+          )
+        ) {
           throw new ResponsesError("The inference stream reported an unsuccessful response.");
         }
         if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
@@ -616,7 +682,10 @@ export class ChatGPTResponsesModel extends BaseChatModel<ResponsesCallOptions> {
             throw new ResponsesError("Invalid inference completion.");
           }
           for (const [index, item] of completedItems) {
-            const finalItem = object(result.output[index], "The completed output does not match the stream.");
+            const finalItem = object(
+              result.output[index],
+              "The completed output does not match the stream.",
+            );
             if (finalItem.id !== item.id) {
               throw new ResponsesError("The completed output does not match the stream.");
             }
