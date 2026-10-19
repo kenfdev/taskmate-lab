@@ -7,7 +7,13 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { createLocalJWKSet, decodeProtectedHeader, jwtVerify, type JWK, type JWTPayload } from "jose";
+import {
+  createLocalJWKSet,
+  decodeProtectedHeader,
+  jwtVerify,
+  type JWK,
+  type JWTPayload,
+} from "jose";
 import type { Pool, PoolClient } from "pg";
 
 export const ISSUER = "https://auth.openai.com";
@@ -83,7 +89,10 @@ const TABLES = {
 } as const;
 
 class PostgresRecords implements AuthRecords {
-  constructor(private readonly client: PoolClient, private readonly userId: string) {}
+  constructor(
+    private readonly client: PoolClient,
+    private readonly userId: string,
+  ) {}
 
   async read(kind: AuthRecordKind): Promise<Buffer | null> {
     const result = await this.client.query<{ ciphertext: Buffer }>(
@@ -95,8 +104,10 @@ class PostgresRecords implements AuthRecords {
 
   async write(kind: AuthRecordKind, ciphertext: Buffer): Promise<void> {
     await this.client.query(
-      "INSERT INTO " + TABLES[kind] + " (user_id, ciphertext) VALUES ($1, $2) " +
-      "ON CONFLICT (user_id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext",
+      "INSERT INTO " +
+        TABLES[kind] +
+        " (user_id, ciphertext) VALUES ($1, $2) " +
+        "ON CONFLICT (user_id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext",
       [this.userId, ciphertext],
     );
   }
@@ -109,16 +120,20 @@ class PostgresRecords implements AuthRecords {
 export class PostgresAuthRepository implements AuthRepository {
   readonly #pool: Pool;
 
-  constructor(pool: Pool) { this.#pool = pool; }
+  constructor(pool: Pool) {
+    this.#pool = pool;
+  }
 
   async setup(): Promise<void> {
     await this.#pool.query(
       "CREATE TABLE IF NOT EXISTS tm_auth_hosts " +
-      "(singleton boolean PRIMARY KEY CHECK (singleton), host_id text NOT NULL)",
+        "(singleton boolean PRIMARY KEY CHECK (singleton), host_id text NOT NULL)",
     );
     for (const table of Object.values(TABLES)) {
       await this.#pool.query(
-        "CREATE TABLE IF NOT EXISTS " + table + " (user_id text PRIMARY KEY, ciphertext bytea NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS " +
+          table +
+          " (user_id text PRIMARY KEY, ciphertext bytea NOT NULL)",
       );
     }
   }
@@ -126,7 +141,7 @@ export class PostgresAuthRepository implements AuthRepository {
   async hostId(): Promise<string> {
     const result = await this.#pool.query<{ host_id: string }>(
       "INSERT INTO tm_auth_hosts (singleton, host_id) VALUES (true, $1) " +
-      "ON CONFLICT (singleton) DO UPDATE SET host_id = tm_auth_hosts.host_id RETURNING host_id",
+        "ON CONFLICT (singleton) DO UPDATE SET host_id = tm_auth_hosts.host_id RETURNING host_id",
       ["urn:uuid:" + randomUUID()],
     );
     const row = result.rows[0];
@@ -142,11 +157,15 @@ export class PostgresAuthRepository implements AuthRepository {
       const deadline = performance.now() + 10_000;
       while (true) {
         const result = await client.query<{ acquired: boolean }>(
-          "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [lockKey],
+          "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired",
+          [lockKey],
         );
         if (result.rows[0]?.acquired) break;
         if (performance.now() >= deadline) {
-          throw new AuthError("authentication_busy", "Another sign-in operation is running. Try again shortly.");
+          throw new AuthError(
+            "authentication_busy",
+            "Another sign-in operation is running. Try again shortly.",
+          );
         }
         await delay(25);
       }
@@ -220,10 +239,17 @@ export class AuthService {
     this.redirectUri = config.redirectUri ?? "http://127.0.0.1:8765/auth/callback";
     const uri = new URL(this.redirectUri);
     if (
-      uri.protocol !== "http:" || uri.hostname !== "127.0.0.1" || Number(uri.port) < 1 ||
-      uri.username || uri.password || uri.pathname !== "/auth/callback" || uri.search || uri.hash ||
+      uri.protocol !== "http:" ||
+      uri.hostname !== "127.0.0.1" ||
+      Number(uri.port) < 1 ||
+      uri.username ||
+      uri.password ||
+      uri.pathname !== "/auth/callback" ||
+      uri.search ||
+      uri.hash ||
       this.redirectUri !== uri.href
-    ) throw new Error("Use http://127.0.0.1:<port>/auth/callback.");
+    )
+      throw new Error("Use http://127.0.0.1:<port>/auth/callback.");
     this.#key = Buffer.from(config.encryptionKey, "base64");
     if (this.#key.length !== 32 || this.#key.toString("base64") !== config.encryptionKey) {
       throw new Error("TASKMATE_ENCRYPTION_KEY must be canonical base64 for exactly 32 bytes.");
@@ -240,7 +266,11 @@ export class AuthService {
     return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), encrypted]);
   }
 
-  private open<T extends PendingSignIn | Registration>(userId: string, kind: AuthRecordKind, data: Buffer): T {
+  private open<T extends PendingSignIn | Registration>(
+    userId: string,
+    kind: AuthRecordKind,
+    data: Buffer,
+  ): T {
     try {
       if (data.length < 30 || data[0] !== 1) throw new Error();
       const decipher = createDecipheriv("aes-256-gcm", this.#key, data.subarray(1, 13));
@@ -261,17 +291,22 @@ export class AuthService {
         method,
         redirect: "error",
         signal: AbortSignal.timeout(10_000),
-        ...(form ? {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(form),
-        } : {}),
+        ...(form
+          ? {
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams(form),
+            }
+          : {}),
       });
       const body = await response.text();
       if (body.length > 1_048_576) throw new AuthError("invalid_provider_response");
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof AuthError) throw error;
-      throw new AuthError("provider_unavailable", "ChatGPT could not be reached. Try again shortly.");
+      throw new AuthError(
+        "provider_unavailable",
+        "ChatGPT could not be reached. Try again shortly.",
+      );
     }
   }
 
@@ -289,8 +324,11 @@ export class AuthService {
     if (response.status !== 200) throw new AuthError("discovery_failed");
     const metadata = this.json(response.body);
     const expected = {
-      issuer: ISSUER, authorization_endpoint: AUTHORIZE, token_endpoint: TOKEN,
-      jwks_uri: JWKS, revocation_endpoint: REVOKE,
+      issuer: ISSUER,
+      authorization_endpoint: AUTHORIZE,
+      token_endpoint: TOKEN,
+      jwks_uri: JWKS,
+      revocation_endpoint: REVOKE,
     };
     if (Object.entries(expected).some(([key, value]) => metadata[key] !== value)) {
       throw new AuthError("unexpected_provider_endpoints");
@@ -298,14 +336,16 @@ export class AuthService {
     if (
       !Array.isArray(metadata.id_token_signing_alg_values_supported) ||
       !metadata.id_token_signing_alg_values_supported.includes("RS256")
-    ) throw new AuthError("unsupported_signing_algorithm");
+    )
+      throw new AuthError("unsupported_signing_algorithm");
     this.discovered = true;
   }
 
   private async identity(token: string, clientId: string, nonce?: string): Promise<JWTPayload> {
     try {
       const header = decodeProtectedHeader(token);
-      if (header.alg !== "RS256" || typeof header.kid !== "string" || !header.kid) throw new Error();
+      if (header.alg !== "RS256" || typeof header.kid !== "string" || !header.kid)
+        throw new Error();
       if (!this.keySet || this.now() >= this.keysUntil || !this.keyIds.has(header.kid)) {
         const response = await this.request("GET", JWKS);
         if (response.status !== 200) throw new AuthError("jwks_failed");
@@ -317,7 +357,9 @@ export class AuthService {
           return key as JWK;
         });
         this.keySet = createLocalJWKSet({ keys: publicKeys });
-        this.keyIds = new Set(publicKeys.flatMap((key) => typeof key.kid === "string" ? [key.kid] : []));
+        this.keyIds = new Set(
+          publicKeys.flatMap((key) => (typeof key.kid === "string" ? [key.kid] : [])),
+        );
         this.keysUntil = this.now() + 300;
       }
       const { payload } = await jwtVerify(token, this.keySet, {
@@ -329,16 +371,24 @@ export class AuthService {
         currentDate: new Date(this.now() * 1000),
       });
       if (
-        !payload.sub || typeof payload.sub !== "string" ||
-        typeof payload.exp !== "number" || !Number.isInteger(payload.exp) ||
-        typeof payload.iat !== "number" || !Number.isInteger(payload.iat) ||
+        !payload.sub ||
+        typeof payload.sub !== "string" ||
+        typeof payload.exp !== "number" ||
+        !Number.isInteger(payload.exp) ||
+        typeof payload.iat !== "number" ||
+        !Number.isInteger(payload.iat) ||
         payload.iat > this.now() + 5
-      ) throw new Error();
+      )
+        throw new Error();
       if (
         ((Array.isArray(payload.aud) && payload.aud.length > 1) || payload.azp !== undefined) &&
         payload.azp !== clientId
-      ) throw new Error();
-      if (nonce !== undefined && (typeof payload.nonce !== "string" || !sameSecret(payload.nonce, nonce))) {
+      )
+        throw new Error();
+      if (
+        nonce !== undefined &&
+        (typeof payload.nonce !== "string" || !sameSecret(payload.nonce, nonce))
+      ) {
         throw new Error();
       }
       return payload;
@@ -352,9 +402,17 @@ export class AuthService {
     const response = await this.request("POST", TOKEN, form);
     const body = this.json(response.body);
     if (response.status !== 200) {
-      const safeCodes = ["invalid_grant", "invalid_client", "invalid_scope", "slow_down", "temporarily_unavailable"];
-      const code = typeof body.error === "string" && safeCodes.includes(body.error)
-        ? body.error : "token_exchange_failed";
+      const safeCodes = [
+        "invalid_grant",
+        "invalid_client",
+        "invalid_scope",
+        "slow_down",
+        "temporarily_unavailable",
+      ];
+      const code =
+        typeof body.error === "string" && safeCodes.includes(body.error)
+          ? body.error
+          : "token_exchange_failed";
       throw new AuthError(code);
     }
     return body;
@@ -365,16 +423,24 @@ export class AuthService {
       throw new AuthError("invalid_token_response");
     }
     const lifetime = body.expires_in;
-    if (typeof lifetime !== "number" || !Number.isFinite(lifetime) || lifetime <= 0 || lifetime > 86400) {
+    if (
+      typeof lifetime !== "number" ||
+      !Number.isFinite(lifetime) ||
+      lifetime <= 0 ||
+      lifetime > 86400
+    ) {
       throw new AuthError("invalid_token_response");
     }
     let scopes: string[];
     if (body.scope === undefined) scopes = previous?.scopes ?? [];
-    else if (typeof body.scope === "string") scopes = [...new Set(body.scope.split(/\s+/).filter(Boolean))];
+    else if (typeof body.scope === "string")
+      scopes = [...new Set(body.scope.split(/\s+/).filter(Boolean))];
     else throw new AuthError("invalid_token_response");
     const rawEarliest = body.earliest_refresh_at ?? 0;
-    const earliest = typeof rawEarliest === "string" && /(?:Z|[+-]\d\d:\d\d)$/.test(rawEarliest)
-      ? Date.parse(rawEarliest) / 1000 : rawEarliest;
+    const earliest =
+      typeof rawEarliest === "string" && /(?:Z|[+-]\d\d:\d\d)$/.test(rawEarliest)
+        ? Date.parse(rawEarliest) / 1000
+        : rawEarliest;
     if (typeof earliest !== "number" || !Number.isFinite(earliest) || earliest < 0) {
       throw new AuthError("invalid_token_response");
     }
@@ -423,8 +489,17 @@ export class AuthService {
     });
   }
 
-  async complete(userId: string, browserSessionId: string, callback: Callback): Promise<AuthStatus> {
-    if (!callback || typeof callback.state !== "string" || !callback.state || callback.state.length > 512) {
+  async complete(
+    userId: string,
+    browserSessionId: string,
+    callback: Callback,
+  ): Promise<AuthStatus> {
+    if (
+      !callback ||
+      typeof callback.state !== "string" ||
+      !callback.state ||
+      callback.state.length > 512
+    ) {
       throw new AuthError("invalid_sign_in_state");
     }
     return this.#repo.withUser(userId, async (records) => {
@@ -436,11 +511,18 @@ export class AuthService {
         this.now() >= pending.expiresAt ||
         !sameSecret(pending.state, callback.state) ||
         !sameSecret(pending.browserSessionId, browserSessionId)
-      ) throw new AuthError("invalid_sign_in_state");
-      if (callback.error !== undefined) throw new AuthError("authorization_denied", "ChatGPT sign-in was cancelled or denied.");
-      if (!callback.code || callback.code.length > 8192) throw new AuthError("missing_authorization_code");
+      )
+        throw new AuthError("invalid_sign_in_state");
+      if (callback.error !== undefined)
+        throw new AuthError("authorization_denied", "ChatGPT sign-in was cancelled or denied.");
+      if (!callback.code || callback.code.length > 8192)
+        throw new AuthError("missing_authorization_code");
       if (pending.clientId === DYNAMIC_CLIENT) {
-        if (!callback.clientId || callback.clientId === DYNAMIC_CLIENT || callback.clientId.length > 512) {
+        if (
+          !callback.clientId ||
+          callback.clientId === DYNAMIC_CLIENT ||
+          callback.clientId.length > 512
+        ) {
           throw new AuthError("incomplete_registration");
         }
       } else if (callback.clientId !== undefined && callback.clientId !== pending.clientId) {
@@ -449,9 +531,15 @@ export class AuthService {
       const issuedId = callback.clientId ?? pending.clientId;
       await this.discover();
       if (pending.clientId === DYNAMIC_CLIENT) {
-        await records.write("credentials", this.seal(userId, "credentials", {
-          clientId: issuedId, subject: null, email: null, tokens: null,
-        }));
+        await records.write(
+          "credentials",
+          this.seal(userId, "credentials", {
+            clientId: issuedId,
+            subject: null,
+            email: null,
+            tokens: null,
+          }),
+        );
       }
       const body = await this.exchange({
         grant_type: "authorization_code",
@@ -463,7 +551,8 @@ export class AuthService {
       });
       const idToken = requiredString(body.id_token);
       const claims = await this.identity(idToken, issuedId, pending.nonce);
-      if (pending.subject !== null && claims.sub !== pending.subject) throw new AuthError("account_mismatch");
+      if (pending.subject !== null && claims.sub !== pending.subject)
+        throw new AuthError("account_mismatch");
       const registration: Registration = {
         clientId: issuedId,
         subject: requiredString(claims.sub),
@@ -491,13 +580,19 @@ export class AuthService {
       }
       const previous = registration.tokens;
       if (!previous.scopes.includes("chatgpt.tokens.use.direct")) {
-        throw new AuthError("plan_permission_required", "ChatGPT plan access has not been granted.");
+        throw new AuthError(
+          "plan_permission_required",
+          "ChatGPT plan access has not been granted.",
+        );
       }
       const now = this.now();
       if (previous.expiresAt - now > 60) return previous.accessToken;
       if (now < previous.earliestRefreshAt) {
         if (now < previous.expiresAt) return previous.accessToken;
-        throw new AuthError("refresh_not_due", "ChatGPT renewal is not available yet. Try again shortly.");
+        throw new AuthError(
+          "refresh_not_due",
+          "ChatGPT renewal is not available yet. Try again shortly.",
+        );
       }
       await this.discover();
       let body: Record<string, unknown>;
@@ -509,8 +604,14 @@ export class AuthService {
           resource: RESOURCE,
         });
       } catch (error) {
-        if (error instanceof AuthError && ["invalid_grant", "invalid_client"].includes(error.code)) {
-          await records.write("credentials", this.seal(userId, "credentials", { ...registration, tokens: null }));
+        if (
+          error instanceof AuthError &&
+          ["invalid_grant", "invalid_client"].includes(error.code)
+        ) {
+          await records.write(
+            "credentials",
+            this.seal(userId, "credentials", { ...registration, tokens: null }),
+          );
         }
         throw error;
       }
@@ -521,9 +622,15 @@ export class AuthService {
         if (claims.sub !== registration.subject) throw new AuthError("account_mismatch");
       }
       const updated = this.tokens(body, idToken, previous);
-      await records.write("credentials", this.seal(userId, "credentials", { ...registration, tokens: updated }));
+      await records.write(
+        "credentials",
+        this.seal(userId, "credentials", { ...registration, tokens: updated }),
+      );
       if (!updated.scopes.includes("chatgpt.tokens.use.direct")) {
-        throw new AuthError("plan_permission_required", "ChatGPT plan access has not been granted.");
+        throw new AuthError(
+          "plan_permission_required",
+          "ChatGPT plan access has not been granted.",
+        );
       }
       return updated.accessToken;
     });
@@ -559,7 +666,10 @@ export class AuthService {
       } catch {
         confirmed = false;
       } finally {
-        await records.write("credentials", this.seal(userId, "credentials", { ...registration, tokens: null }));
+        await records.write(
+          "credentials",
+          this.seal(userId, "credentials", { ...registration, tokens: null }),
+        );
       }
       return confirmed;
     });

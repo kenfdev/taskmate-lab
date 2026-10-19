@@ -3,15 +3,8 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": [
-      "node",
-      "vite-plus/test/globals"
-    ],
+    "types": ["node", "vite-plus/test/globals"],
     "noEmit": true
   },
-  "include": [
-    "src/**/*.ts",
-    "tests/**/*.ts",
-    "vite.config.ts"
-  ]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vite.config.ts"]
 }

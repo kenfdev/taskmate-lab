@@ -4,7 +4,7 @@ strictPeerDependencies: true
 allowBuilds:
   esbuild: true
 overrides:
-  'vite@*': npm:@voidzero-dev/vite-plus-core@1.3.0
+  "vite@*": npm:@voidzero-dev/vite-plus-core@1.3.0
 peerDependencyRules:
   allowedVersions:
-    vite: '1.3.0'
+    vite: "1.3.0"

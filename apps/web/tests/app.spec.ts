@@ -28,11 +28,11 @@ class MockApi {
   models = ["mock-model-small", "mock-model-large"];
   tasks: Record<DemoUser, Task[]> = {
     alice: [{ id: "alice-1", title: "Aliceの見積もり", completed: false }],
-    bob: [{ id: "bob-1", title: "Bobの買い物", completed: false }]
+    bob: [{ id: "bob-1", title: "Bobの買い物", completed: false }],
   };
   preferences: Record<DemoUser, Preferences> = {
     alice: { tone: "concise", notification_hour: 9, timezone: "Asia/Tokyo" },
-    bob: { tone: "friendly", notification_hour: 18, timezone: "Asia/Tokyo" }
+    bob: { tone: "friendly", notification_hour: 18, timezone: "Asia/Tokyo" },
   };
   notifications: Record<DemoUser, Notice[]> = { alice: [], bob: [] };
   threads = new Map<string, MockThread>();
@@ -57,7 +57,7 @@ class MockApi {
       user_id: userId,
       csrf_token: "synthetic-csrf-" + userId,
       chatgpt_connected: this.connected[userId],
-      model: this.model
+      model: this.model,
     };
   }
 
@@ -66,9 +66,11 @@ class MockApi {
       status,
       contentType: "application/json",
       body: JSON.stringify(payload),
-      headers: userId ? {
-        "Set-Cookie": "taskmate_mock_profile=" + userId + "; Path=/; HttpOnly; SameSite=Lax"
-      } : undefined
+      headers: userId
+        ? {
+            "Set-Cookie": "taskmate_mock_profile=" + userId + "; Path=/; HttpOnly; SameSite=Lax",
+          }
+        : undefined,
     });
   }
 
@@ -76,12 +78,15 @@ class MockApi {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
-    const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null;
+    const body = request.postData() ? (request.postDataJSON() as Record<string, unknown>) : null;
     const headers = await request.allHeaders();
-    const profileCookie = headers.cookie?.split(";").map((part) => part.trim())
-      .find((part) => part.startsWith("taskmate_mock_profile="))?.split("=")[1];
-    const user: DemoUser = profileCookie === "alice" || profileCookie === "bob"
-      ? profileCookie : this.userId;
+    const profileCookie = headers.cookie
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("taskmate_mock_profile="))
+      ?.split("=")[1];
+    const user: DemoUser =
+      profileCookie === "alice" || profileCookie === "bob" ? profileCookie : this.userId;
     const csrf = headers["x-csrf-token"];
     this.calls.push({ method, path, userId: user, body: structuredClone(body), csrf });
     if (!(path === "/api/session" && method === "GET") && csrf !== "synthetic-csrf-" + user) {
@@ -121,21 +126,24 @@ class MockApi {
       this.preferences[user] = {
         tone: body?.tone as Tone,
         notification_hour: Number(body?.notification_hour),
-        timezone: String(body?.timezone)
+        timezone: String(body?.timezone),
       };
       await this.respond(route, this.preferences[user]);
       return;
     }
     if (path === "/api/models" && method === "GET") {
-      await this.respond(route, this.connected[user]
-        ? { models: this.models } : { detail: "Not connected" }, this.connected[user] ? 200 : 401);
+      await this.respond(
+        route,
+        this.connected[user] ? { models: this.models } : { detail: "Not connected" },
+        this.connected[user] ? 200 : 401,
+      );
       return;
     }
     if (path === "/api/oauth/disconnect" && method === "POST") {
       this.connected[user] = false;
       await this.respond(route, {
         disconnected: true,
-        remote_revocation_confirmed: this.remoteRevocationConfirmed
+        remote_revocation_confirmed: this.remoteRevocationConfirmed,
       });
       return;
     }
@@ -151,7 +159,7 @@ class MockApi {
       const notice = {
         id: randomUUID(),
         content: "モック通知です。今日のタスクを確認しましょう。",
-        created_at: "2026-10-19T00:00:00+00:00"
+        created_at: "2026-10-19T00:00:00+00:00",
       };
       this.notifications[user].push(notice);
       await this.respond(route, { content: notice.content });
@@ -165,8 +173,13 @@ class MockApi {
     }
 
     const parts = path.split("/").filter(Boolean);
-    if (parts.length === 4 && parts[0] === "api" && parts[1] === "tasks" &&
-      parts[3] === "complete" && method === "POST") {
+    if (
+      parts.length === 4 &&
+      parts[0] === "api" &&
+      parts[1] === "tasks" &&
+      parts[3] === "complete" &&
+      method === "POST"
+    ) {
       const task = this.tasks[user].find((item) => item.id === parts[2]);
       if (!task) await this.respond(route, { detail: "Task not found" }, 404);
       else {
@@ -199,7 +212,12 @@ class MockApi {
         }
         if (this.failNextChat) {
           this.failNextChat = false;
-          thread.messages.push({ role: "user", content: String(body?.message), request_id: id, pending: true });
+          thread.messages.push({
+            role: "user",
+            content: String(body?.message),
+            request_id: id,
+            pending: true,
+          });
           await this.respond(route, { detail: "Synthetic temporary failure" }, 503);
           return;
         }
@@ -209,7 +227,7 @@ class MockApi {
           thread.messages = thread.messages.filter((message) => !message.pending);
           thread.messages.push(
             { role: "user", content: String(body?.message) },
-            { role: "assistant", content: this.reply }
+            { role: "assistant", content: this.reply },
           );
           thread.replies.set(id, this.reply);
           if (this.preferencesAfterChat) {
@@ -234,15 +252,16 @@ const test = base.extend<{ api: MockApi }>({
     await use(api);
     expect(api.unhandled).toEqual([]);
     expect(api.csrfErrors).toEqual(api.expectedCsrfErrors);
-  }
+  },
 });
 
 async function openApp(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator("#runtime-status")).toHaveText("準備できました");
   await expect(page.locator("#error-banner")).toBeHidden();
-  await page.addStyleTag({ content:
-    'body::before { content: "UIテスト · すべて合成データ · 実際のOAuth・モデルは未使用"; display: block; padding: 8px 16px; text-align: center; background: #233a32; color: white; font: 12px sans-serif; }'
+  await page.addStyleTag({
+    content:
+      'body::before { content: "UIテスト · すべて合成データ · 実際のOAuth・モデルは未使用"; display: block; padding: 8px 16px; text-align: center; background: #233a32; color: white; font: 12px sans-serif; }',
   });
 }
 
@@ -263,7 +282,9 @@ test("direct tasks and preferences work without OAuth or a model", async ({ page
 
   await page.getByLabel("新しいタスク", { exact: true }).fill("資料をまとめる");
   await page.getByRole("button", { name: "追加", exact: true }).click();
-  await expect(page.locator("#task-list").getByText("資料をまとめる", { exact: true })).toBeVisible();
+  await expect(
+    page.locator("#task-list").getByText("資料をまとめる", { exact: true }),
+  ).toBeVisible();
   await expect(page.locator("#task-count")).toHaveText("残り 2 件");
   await page.getByRole("button", { name: "資料をまとめるを完了にする", exact: true }).click();
   await expect(page.locator(".task-row.completed")).toContainText("資料をまとめる");
@@ -273,9 +294,15 @@ test("direct tasks and preferences work without OAuth or a model", async ({ page
   await page.locator("#notification-hour").selectOption("14");
   await page.getByRole("button", { name: "設定を保存", exact: true }).click();
   await expect(page.locator("#preference-status")).toHaveText("保存済み");
-  expect(api.preferences.alice).toEqual({ tone: "friendly", notification_hour: 14, timezone: "Asia/Tokyo" });
+  expect(api.preferences.alice).toEqual({
+    tone: "friendly",
+    notification_hour: 14,
+    timezone: "Asia/Tokyo",
+  });
   expect(api.model).toBeNull();
-  for (const call of api.calls.filter((item) => !(item.path === "/api/session" && item.method === "GET"))) {
+  for (const call of api.calls.filter(
+    (item) => !(item.path === "/api/session" && item.method === "GET"),
+  )) {
     expect(call.csrf).toBe("synthetic-csrf-" + call.userId);
   }
 });
@@ -306,15 +333,27 @@ test("profile switches clear the previous tasks and chat", async ({ page, api })
   expect(calls[0]!.path).not.toBe(calls[1]!.path);
 });
 
-test("a shared-cookie profile switch rejects stale reads in the other tab", async ({ page, context, api }) => {
+test("a shared-cookie profile switch rejects stale reads in the other tab", async ({
+  page,
+  context,
+  api,
+}) => {
   api.connected = { alice: true, bob: true };
   api.model = "mock-model-small";
-  api.notifications.alice = [{
-    id: "alice-notice", content: "Alice専用のお知らせ", created_at: "2026-10-19T00:00:00+00:00"
-  }];
-  api.notifications.bob = [{
-    id: "bob-notice", content: "Bob専用のお知らせ", created_at: "2026-10-19T00:00:00+00:00"
-  }];
+  api.notifications.alice = [
+    {
+      id: "alice-notice",
+      content: "Alice専用のお知らせ",
+      created_at: "2026-10-19T00:00:00+00:00",
+    },
+  ];
+  api.notifications.bob = [
+    {
+      id: "bob-notice",
+      content: "Bob専用のお知らせ",
+      created_at: "2026-10-19T00:00:00+00:00",
+    },
+  ];
   await openApp(page);
   await sendMessage(page, "Aliceのタブだけの会話");
   await expect(page.locator("#runtime-status")).toHaveText("準備できました");
@@ -325,7 +364,9 @@ test("a shared-cookie profile switch rejects stale reads in the other tab", asyn
     await otherTab.locator("#demo-user").selectOption("bob");
     await expect(otherTab.locator("#runtime-status")).toHaveText("準備できました");
     await expect(otherTab.locator("#task-list")).toContainText("Bobの買い物");
-    expect((await context.cookies()).find((cookie) => cookie.name === "taskmate_mock_profile")?.value).toBe("bob");
+    expect(
+      (await context.cookies()).find((cookie) => cookie.name === "taskmate_mock_profile")?.value,
+    ).toBe("bob");
 
     // The first tab still holds Alice's CSRF token, even though both tabs now
     // share Bob's session cookie. The mocked server must reject, not return Bob.
@@ -365,8 +406,12 @@ test("a late Alice reply cannot appear after switching to Bob", async ({ page, a
   api.model = "mock-model-small";
   let release!: () => void;
   let started!: () => void;
-  api.chatGate = new Promise<void>((resolve) => { release = resolve; });
-  const chatStarted = new Promise<void>((resolve) => { started = resolve; });
+  api.chatGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chatStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
   api.chatStarted = started;
   await openApp(page);
   await sendMessage(page, "Aliceの遅い相談");
@@ -411,7 +456,7 @@ test("reload and profile changes restore each profile's thread", async ({ page, 
   expect(api.threads.size).toBe(2);
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(sessionStorage)))).toEqual({
     "taskmate.thread.alice": aliceThread,
-    "taskmate.thread.bob": bobThread
+    "taskmate.thread.bob": bobThread,
   });
 });
 
@@ -441,13 +486,17 @@ test("model content, task titles, and notifications render as text", async ({ pa
   api.model = "mock-model-small";
   api.tasks.alice[0]!.title = payload;
   api.reply = payload;
-  api.notifications.alice = [{ id: "xss-notice", content: payload, created_at: "2026-10-19T00:00:00+00:00" }];
+  api.notifications.alice = [
+    { id: "xss-notice", content: payload, created_at: "2026-10-19T00:00:00+00:00" },
+  ];
   await openApp(page);
   await expect(page.locator("#task-list .task-title")).toHaveText(payload);
   await expect(page.locator("#notification-list .notification-content")).toHaveText(payload);
   await sendMessage(page, "安全な表示を確認");
   await expect(page.locator("#chat-log .assistant .message-content")).toHaveText(payload);
-  await expect(page.locator("#task-list img, #chat-log img, #notification-list img")).toHaveCount(0);
+  await expect(page.locator("#task-list img, #chat-log img, #notification-list img")).toHaveCount(
+    0,
+  );
   expect(await page.locator("html").getAttribute("data-xss")).toBeNull();
 });
 
@@ -472,7 +521,10 @@ test("failed chats retry the same UUIDv4 when randomUUID is unavailable", async 
   await expect(page.locator("#chat-log .user")).toHaveCount(1);
 });
 
-test("reload restores a pending command without duplicating its user message", async ({ page, api }) => {
+test("reload restores a pending command without duplicating its user message", async ({
+  page,
+  api,
+}) => {
   api.connected.alice = true;
   api.model = "mock-model-small";
   api.failNextChat = true;
@@ -498,11 +550,13 @@ test("UTC and an agent-selected Europe/London timezone stay editable", async ({ 
   api.connected.alice = true;
   api.model = "mock-model-small";
   api.preferences.alice.timezone = "UTC";
-  api.notifications.alice = [{
-    id: "timezone-notice",
-    content: "タイムゾーンを確認するためのモック通知です。",
-    created_at: "2026-10-19T00:00:00+00:00"
-  }];
+  api.notifications.alice = [
+    {
+      id: "timezone-notice",
+      content: "タイムゾーンを確認するためのモック通知です。",
+      created_at: "2026-10-19T00:00:00+00:00",
+    },
+  ];
   await openApp(page);
   await expect(page.locator("#timezone")).toHaveValue("UTC");
   await expect(page.locator("#timezone")).toBeEnabled();
@@ -515,7 +569,9 @@ test("UTC and an agent-selected Europe/London timezone stay editable", async ({ 
   await expect(page.locator("#timezone")).toBeEnabled();
   await expect(page.locator("#tone")).toBeEnabled();
   await expect(page.locator("#timezone option[value='Europe/London']")).toHaveText("Europe/London");
-  await expect(page.locator("#notification-list .notification-time")).toContainText("Europe/London");
+  await expect(page.locator("#notification-list .notification-time")).toContainText(
+    "Europe/London",
+  );
   await expect(page.locator("#error-banner")).toBeHidden();
 });
 
@@ -537,14 +593,17 @@ test("synthetic dashboard screenshot", async ({ page, api }, testInfo) => {
   api.tasks.alice = [
     { id: "demo-1", title: "見積もりを送る", completed: false },
     { id: "demo-2", title: "打ち合わせのメモを整理する", completed: false },
-    { id: "demo-3", title: "机の上を片づける", completed: true }
+    { id: "demo-3", title: "机の上を片づける", completed: true },
   ];
-  api.notifications.alice = [{
-    id: "demo-notice",
-    content: "今日は2件のタスクが残っています。ひとつずつ進めましょう。",
-    created_at: "2026-10-19T00:00:00+00:00"
-  }];
-  api.reply = "まずは「見積もりを送る」から始めましょう。\n送信前に、金額と宛先を確認すると安心です。";
+  api.notifications.alice = [
+    {
+      id: "demo-notice",
+      content: "今日は2件のタスクが残っています。ひとつずつ進めましょう。",
+      created_at: "2026-10-19T00:00:00+00:00",
+    },
+  ];
+  api.reply =
+    "まずは「見積もりを送る」から始めましょう。\n送信前に、金額と宛先を確認すると安心です。";
   await page.setViewportSize({ width: 1440, height: 1040 });
   await openApp(page);
   await page.getByRole("button", { name: "一覧を取得", exact: true }).click();

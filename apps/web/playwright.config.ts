@@ -5,7 +5,10 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   outputDir: "../../artifacts/browser",
-  reporter: [["list"], ["html", { outputFolder: "../../artifacts/playwright-report", open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "../../artifacts/playwright-report", open: "never" }],
+  ],
   use: {
     baseURL: "http://127.0.0.1:5173",
     browserName: "chromium",

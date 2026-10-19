@@ -2,12 +2,12 @@
 
 All settings belong in the root .env, which is loaded by the start and worker scripts. Do not commit this file.
 
-| Setting | Purpose |
-| --- | --- |
-| DATABASE_URL | PostgreSQL connection string. The supplied Compose service is loopback-only and uses demo credentials. |
-| TASKMATE_ENCRYPTION_KEY | Canonical base64 encoding of 32 random bytes, created locally by the operator. |
-| TASKMATE_MODEL | Exact available model ID from the signed-in account catalog. Blank disables model operations. |
-| LANGSMITH_TRACING | Keep false for this local PoC. |
+| Setting                 | Purpose                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| DATABASE_URL            | PostgreSQL connection string. The supplied Compose service is loopback-only and uses demo credentials. |
+| TASKMATE_ENCRYPTION_KEY | Canonical base64 encoding of 32 random bytes, created locally by the operator.                         |
+| TASKMATE_MODEL          | Exact available model ID from the signed-in account catalog. Blank disables model operations.          |
+| LANGSMITH_TRACING       | Keep false for this local PoC.                                                                         |
 
 The API and OAuth callback use http://127.0.0.1:8765. The app intentionally has no public host option. Use this exact origin, rather than localhost aliases.
 
