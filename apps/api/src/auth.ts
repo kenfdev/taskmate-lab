@@ -424,6 +424,9 @@ export class AuthService {
   }
 
   async complete(userId: string, browserSessionId: string, callback: Callback): Promise<AuthStatus> {
+    if (!callback || typeof callback.state !== "string" || !callback.state || callback.state.length > 512) {
+      throw new AuthError("invalid_sign_in_state");
+    }
     return this.#repo.withUser(userId, async (records) => {
       const saved = await records.read("pending");
       if (!saved) throw new AuthError("missing_sign_in");

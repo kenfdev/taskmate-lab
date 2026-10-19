@@ -217,6 +217,22 @@ describe("ChatGPT authorization", () => {
     },
   );
 
+  it.each([
+    undefined, null, 123, {}, ["state"], "", "x".repeat(513),
+  ])("preserves pending sign-in when callback state has invalid shape %j", async (state) => {
+    const query = await start();
+    const pending = repo.values.get("alice:pending");
+    const callback = { state, code: "code-one", clientId: provider.clientId };
+    await expect(service.complete(
+      "alice", "browser-alice", callback as Parameters<AuthService["complete"]>[2],
+    )).rejects.toMatchObject({ name: "AuthError", code: "invalid_sign_in_state" });
+    expect(repo.values.get("alice:pending")).toBe(pending);
+    expect(provider.forms).toEqual([]);
+    expect(await service.complete("alice", "browser-alice", {
+      state: query.get("state")!, code: "valid-code", clientId: provider.clientId,
+    })).toMatchObject({ connected: true, plan_enabled: true });
+  });
+
   it("rejects successful callback replay", async () => {
     const { query } = await connect();
     await expect(service.complete("alice", "browser-alice", {
@@ -316,6 +332,32 @@ describe("ChatGPT authorization", () => {
     expect((await service.status("alice")).plan_enabled).toBe(true);
   });
 
+  it("rejects a refreshed ID token for another subject without replacing credentials", async () => {
+    provider.expiresIn = 30;
+    await connect();
+    const original = repo.values.get("alice:credentials");
+    const issuedAt = Math.floor(now);
+    provider.tokenOverrides.id_token = await new SignJWT({
+      iss: ISSUER, aud: provider.clientId, sub: "another-subject",
+      iat: issuedAt, exp: issuedAt + 3600,
+    }).setProtectedHeader({ alg: "RS256", kid: provider.kid }).sign(signing.privateKey);
+    await expect(service.accessToken("alice")).rejects.toMatchObject({ code: "account_mismatch" });
+    expect(repo.values.get("alice:credentials")).toBe(original);
+    expect(provider.refreshCount).toBe(1);
+  });
+
+  it("stores a reduced refresh grant and denies plan access without replaying refresh", async () => {
+    provider.expiresIn = 30;
+    await connect();
+    const original = repo.values.get("alice:credentials");
+    provider.tokenOverrides.scope = "openid profile email";
+    await expect(service.accessToken("alice")).rejects.toMatchObject({ code: "plan_permission_required" });
+    expect(repo.values.get("alice:credentials")).not.toBe(original);
+    expect(await service.status("alice")).toMatchObject({ connected: true, plan_enabled: false });
+    await expect(service.accessToken("alice")).rejects.toMatchObject({ code: "plan_permission_required" });
+    expect(provider.refreshCount).toBe(1);
+  });
+
   it("does not refresh before earliest_refresh_at", async () => {
     provider.expiresIn = 30;
     provider.tokenOverrides.earliest_refresh_at = now + 100;
@@ -372,6 +414,45 @@ describe("ChatGPT authorization", () => {
 
   it.each(["", "not-base64", Buffer.alloc(16).toString("base64")])("rejects invalid encryption key %s", (key) => {
     expect(() => new AuthService({ repo, encryptionKey: key })).toThrow(/32 bytes/);
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("releases the PostgreSQL session lock after callback failure", async () => {
+    const options = { connectionString: process.env.TEST_DATABASE_URL, connectionTimeoutMillis: 5000, max: 1 };
+    const pool = new Pool(options);
+    const independentPool = new Pool(options);
+    const postgres = new PostgresAuthRepository(pool);
+    const user = "auth-failure-test-" + randomUUID();
+    const auth = new AuthService({ repo: postgres, encryptionKey, fetch: provider.fetch });
+    try {
+      await postgres.setup();
+      await start(auth, user, "integration-browser");
+      await expect(auth.complete(user, "integration-browser", {
+        state: "wrong-state", code: "unused", clientId: provider.clientId,
+      })).rejects.toMatchObject({ code: "invalid_sign_in_state" });
+      const observer = await independentPool.connect();
+      try {
+        const result = await observer.query<{ acquired: boolean }>(
+          "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired",
+          ["taskmate-auth:" + user],
+        );
+        expect(result.rows[0]?.acquired).toBe(true);
+      } finally {
+        try {
+          await observer.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", ["taskmate-auth:" + user]);
+        } finally {
+          observer.release(true);
+        }
+      }
+      expect(provider.forms).toEqual([]);
+      expect((await pool.query("SELECT user_id FROM tm_auth_pending WHERE user_id = $1", [user])).rows).toEqual([]);
+    } finally {
+      try {
+        await pool.query("DELETE FROM tm_auth_pending WHERE user_id = $1", [user]);
+        await pool.query("DELETE FROM tm_auth_credentials WHERE user_id = $1", [user]);
+      } finally {
+        await Promise.all([pool.end(), independentPool.end()]);
+      }
+    }
   });
 
   it.skipIf(!process.env.TEST_DATABASE_URL)("persists one-use state and synchronizes PostgreSQL refresh", async () => {
